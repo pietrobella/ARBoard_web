@@ -7,6 +7,9 @@ import '../pages/limited_info_page.dart';
 import '../pages/board_tool_page.dart';
 import '../pages/board_tool_detail_page.dart';
 import '../pages/board_edit_page.dart';
+import '../pages/new_schematic_page.dart';
+import '../pages/new_user_manual_page.dart';
+import '../pages/new_label_page.dart';
 import '../pages/error_page.dart';
 
 /// Route path constants for the ARBoard application
@@ -14,12 +17,25 @@ class AppRoutes {
   static const String home = '/';
   static const String boardManagement = '/board_management';
   static const String boardManagementNew = '/board_management/new';
-  static const String boardManagementComplete = '/board_management/new/complete';
+  static const String boardManagementComplete =
+      '/board_management/new/complete';
   static const String boardManagementLimited = '/board_management/new/limited';
   static const String boardManagementDetail = '/board_management/:boardName';
   static const String boardTool = '/board_tool';
   static const String boardToolDetail = '/board_tool/:boardName';
-  
+
+  static String buildNewSchematicRoute(String boardName) {
+    return '/board_management/${Uri.encodeComponent(boardName)}/new_schematic';
+  }
+
+  static String buildNewUserManualRoute(String boardName) {
+    return '/board_management/${Uri.encodeComponent(boardName)}/new_user_manual';
+  }
+
+  static String buildNewLabelRoute(String boardName) {
+    return '/board_management/${Uri.encodeComponent(boardName)}/new_label';
+  }
+
   /// Helper to build board detail route with board name
   static String buildBoardDetailRoute(String boardName) {
     return '/board_management/${Uri.encodeComponent(boardName)}';
@@ -61,6 +77,29 @@ class AppRouter {
                   final boardName = state.pathParameters['boardName'] ?? '';
                   return BoardEditPage(boardName: boardName);
                 },
+                routes: [
+                  GoRoute(
+                    path: 'new_schematic',
+                    builder: (context, state) {
+                      final boardName = state.pathParameters['boardName'] ?? '';
+                      return NewSchematicPage(boardName: boardName);
+                    },
+                  ),
+                  GoRoute(
+                    path: 'new_user_manual',
+                    builder: (context, state) {
+                      final boardName = state.pathParameters['boardName'] ?? '';
+                      return NewUserManualPage(boardName: boardName);
+                    },
+                  ),
+                  GoRoute(
+                    path: 'new_label',
+                    builder: (context, state) {
+                      final boardName = state.pathParameters['boardName'] ?? '';
+                      return NewLabelPage(boardName: boardName);
+                    },
+                  ),
+                ],
               ),
             ],
           ),
