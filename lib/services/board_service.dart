@@ -145,19 +145,27 @@ class BoardService {
   /// [boardId] - ID of the board
   /// [fileBytes] - The PDF file content as bytes
   /// [filename] - The name of the file
-  Future<void> uploadUserManual(
+  ///
+  /// Returns the ID of the uploaded user manual
+  Future<int> uploadUserManual(
     String boardId,
     List<int> fileBytes,
     String filename,
   ) async {
     try {
-      await ApiClient.postMultipart(
+      final response = await ApiClient.postMultipart(
         '/user_manual',
         fields: {'board_id': boardId},
         files: [
           http.MultipartFile.fromBytes('file', fileBytes, filename: filename),
         ],
       );
+
+      if (response is Map<String, dynamic> && response.containsKey('id')) {
+        return response['id'];
+      }
+
+      throw Exception('Invalid response: missing ID');
     } catch (e) {
       throw Exception('Error uploading user manual: $e');
     }
@@ -172,7 +180,9 @@ class BoardService {
   /// [height] - Height of the cropped image
   /// [function] - Function/label of the schematic (optional)
   /// [side] - Side of the board (optional)
-  Future<void> uploadCropSchematic(
+  ///
+  /// Returns the ID of the created crop schematic
+  Future<int> uploadCropSchematic(
     String boardId,
     List<int> fileBytes,
     String filename,
@@ -182,7 +192,7 @@ class BoardService {
     String side = '',
   }) async {
     try {
-      await ApiClient.postMultipart(
+      final response = await ApiClient.postMultipart(
         '/crop_schematic',
         fields: {
           'board_id': boardId,
@@ -195,8 +205,48 @@ class BoardService {
           http.MultipartFile.fromBytes('file', fileBytes, filename: filename),
         ],
       );
+
+      if (response is Map<String, dynamic> && response.containsKey('id')) {
+        return response['id'];
+      }
+
+      throw Exception('Invalid response: missing ID');
     } catch (e) {
       throw Exception('Error uploading crop schematic: $e');
+    }
+  }
+
+  /// Extracts and saves component labels for a crop
+  ///
+  /// [pdfId] - ID of the PDF manual
+  /// [pageNum] - Page number (0-based)
+  /// [crop] - List of 4 doubles [x0, y0, x1, y1] in PDF coordinates
+  /// [cropSchematicId] - ID of the crop schematic
+  /// [boardId] - ID of the board
+  Future<void> extractAndSaveComponentLabels({
+    required int pdfId,
+    required int pageNum,
+    required List<double> crop,
+    required int cropSchematicId,
+    required int boardId,
+    required int width,
+    required int height,
+  }) async {
+    try {
+      await ApiClient.post(
+        '/component_label/extract_and_save',
+        body: {
+          'pdf_id': pdfId,
+          'page_num': pageNum,
+          'crop': crop,
+          'crop_schematic_id': cropSchematicId,
+          'board_id': boardId,
+          'w': width,
+          'h': height,
+        },
+      );
+    } catch (e) {
+      throw Exception('Error extracting labels: $e');
     }
   }
 

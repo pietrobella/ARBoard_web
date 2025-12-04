@@ -162,6 +162,14 @@ class _NewSchematicPageState extends State<NewSchematicPage> {
 
       final selection = _getSelectionRect()!;
 
+      final pdfScaleX = page.width / widgetSize.width;
+      final pdfScaleY = page.height / widgetSize.height;
+
+      final pdfX0 = selection.left * pdfScaleX;
+      final pdfY0 = selection.top * pdfScaleY;
+      final pdfX1 = selection.right * pdfScaleX;
+      final pdfY1 = selection.bottom * pdfScaleY;
+
       final cropX = (selection.left * scaleX).toInt();
       final cropY = (selection.top * scaleY).toInt();
       final cropW = (selection.width * scaleX).toInt();
@@ -188,6 +196,7 @@ class _NewSchematicPageState extends State<NewSchematicPage> {
           'width': safeW,
           'height': safeH,
           'page': _currentPage,
+          'pdfCrop': [pdfX0, pdfY0, pdfX1, pdfY1],
         });
         _startPoint = null;
         _endPoint = null;
@@ -200,16 +209,30 @@ class _NewSchematicPageState extends State<NewSchematicPage> {
   }
 
   Future<void> _uploadAll() async {
-    if (_board == null || _croppedImages.isEmpty) return;
+    if (_board == null ||
+        _croppedImages.isEmpty ||
+        _fileBytes == null ||
+        _selectedFile == null)
+      return;
 
     setState(() {
       _isUploading = true;
     });
 
     try {
+      // 1. Upload the PDF Manual first to get the ID
+      final pdfId = await _boardService.uploadUserManual(
+        _board!.id,
+        _fileBytes!.toList(),
+        _selectedFile!.name,
+      );
+
+      // 2. Upload crops and extract labels
       for (var i = 0; i < _croppedImages.length; i++) {
         final crop = _croppedImages[i];
-        await _boardService.uploadCropSchematic(
+
+        // Upload crop schematic
+        final schematicId = await _boardService.uploadCropSchematic(
           _board!.id,
           crop['bytes'] as Uint8List,
           'schematic_${DateTime.now().millisecondsSinceEpoch}_$i.png',
@@ -218,13 +241,25 @@ class _NewSchematicPageState extends State<NewSchematicPage> {
           function: 'ELECTRICAL',
           side: '',
         );
+
+        // Extract labels
+        final pdfCrop = crop['pdfCrop'] as List<double>;
+        await _boardService.extractAndSaveComponentLabels(
+          pdfId: pdfId,
+          pageNum: (crop['page'] as int) - 1, // 0-based page number
+          crop: pdfCrop,
+          cropSchematicId: schematicId,
+          boardId: int.parse(_board!.id),
+          width: crop['width'] as int,
+          height: crop['height'] as int,
+        );
       }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${_croppedImages.length} schematics uploaded successfully',
+              '${_croppedImages.length} schematics uploaded and processed successfully',
             ),
           ),
         );
