@@ -1,5 +1,6 @@
 import 'package:go_router/go_router.dart';
 import '../pages/home_page.dart';
+import '../pages/controller_mode_page.dart';
 import '../pages/board_management_page.dart';
 import '../pages/new_board_page.dart';
 import '../pages/complete_info_page.dart';
@@ -23,6 +24,7 @@ class AppRoutes {
   static const String boardManagementDetail = '/board_management/:boardName';
   static const String boardTool = '/board_tool';
   static const String boardToolDetail = '/board_tool/:boardName';
+  static const String controllerMode = '/controller_mode';
 
   static String buildNewSchematicRoute(String boardName) {
     return '/board_management/${Uri.encodeComponent(boardName)}/new_schematic';
@@ -116,6 +118,13 @@ class AppRouter {
                 },
               ),
             ],
+          ),
+          GoRoute(
+            path: 'controller_mode',
+            builder: (context, state) {
+              final boardId = state.uri.queryParameters['boardId'];
+              return ControllerModePage(boardId: boardId);
+            },
           ),
         ],
       ),

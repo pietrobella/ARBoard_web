@@ -1,4 +1,5 @@
 import '../models/board.dart';
+import '../models/net.dart';
 import '../models/crop_schematic.dart';
 import '../models/user_manual.dart';
 import '../models/label.dart';
@@ -436,6 +437,23 @@ class BoardService {
       );
     } catch (e) {
       throw Exception('Error creating pad label: $e');
+    }
+  }
+
+  /// Fetches nets for a board
+  ///
+  /// Makes a GET request to /ipc/nets/board/{boardId}
+  Future<List<Net>> getNets(String boardId) async {
+    try {
+      final data = await ApiClient.get('/nets/board/$boardId');
+
+      if (data is List) {
+        return data.map((json) => Net.fromJson(json)).toList();
+      }
+
+      throw Exception('Invalid response format: expected List');
+    } catch (e) {
+      throw Exception('Error fetching nets: $e');
     }
   }
 }
