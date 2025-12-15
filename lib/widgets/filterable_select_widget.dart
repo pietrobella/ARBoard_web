@@ -129,9 +129,11 @@ class _FilterableMultiSelectWidgetState<T>
           Container(
             constraints: const BoxConstraints(maxHeight: 300),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+              ),
               borderRadius: BorderRadius.circular(8),
-              color: Colors.white,
+              color: Theme.of(context).colorScheme.surface,
               boxShadow: [
                 BoxShadow(
                   color: Colors.black12,
@@ -141,11 +143,15 @@ class _FilterableMultiSelectWidgetState<T>
               ],
             ),
             child: _filteredItems.isEmpty
-                ? const Padding(
+                ? Padding(
                     padding: EdgeInsets.all(16.0),
                     child: Text(
                       'Nessun risultato trovato.',
-                      style: TextStyle(color: Colors.grey),
+                      style: TextStyle(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withOpacity(0.6),
+                      ),
                     ),
                   )
                 : Scrollbar(
@@ -171,7 +177,11 @@ class _FilterableMultiSelectWidgetState<T>
                           onTap: () {
                             widget.onToggle(item, !isSelected);
                           },
-                          tileColor: isSelected ? Colors.blue.shade50 : null,
+                          tileColor: isSelected
+                              ? Theme.of(
+                                  context,
+                                ).colorScheme.primary.withOpacity(0.1)
+                              : null,
                         );
                       },
                     ),

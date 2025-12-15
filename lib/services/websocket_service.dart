@@ -3,6 +3,7 @@ import 'api_client.dart';
 
 class ARBoardWebSocket {
   late IO.Socket socket;
+  bool _isInitialized = false;
   String? sessionId;
   int? currentBoardId;
 
@@ -31,11 +32,14 @@ class ARBoardWebSocket {
   ARBoardWebSocket._internal();
 
   void init(String serverUrl) {
+    if (_isInitialized) return;
+
     socket = IO.io(serverUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
     });
     _setupListeners();
+    _isInitialized = true;
   }
 
   void _setupListeners() {

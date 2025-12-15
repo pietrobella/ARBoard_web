@@ -456,4 +456,22 @@ class BoardService {
       throw Exception('Error fetching nets: $e');
     }
   }
+
+  /// Sends text assistance question
+  ///
+  /// Makes a POST request to /ipc/text-assistance/{boardId}
+  Future<void> sendTextAssistance(
+    String boardId,
+    String sessionId,
+    String text,
+  ) async {
+    try {
+      await ApiClient.post(
+        '/text-assistance/$boardId',
+        body: {'session_id': sessionId, 'text': text},
+      );
+    } catch (e) {
+      throw Exception('Error sending text assistance: $e');
+    }
+  }
 }

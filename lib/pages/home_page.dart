@@ -28,10 +28,6 @@ class HomePage extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
-                foregroundColor: Colors.white,
-              ),
               onPressed: () => _showSessionSelectionDialog(context),
               child: const Text('Controller Mode'),
             ),

@@ -6,6 +6,12 @@ import '../models/component.dart';
 import '../models/net.dart';
 import '../widgets/filterable_select_widget.dart';
 
+class _AIChatMessage {
+  final String text;
+  final bool isUser;
+  _AIChatMessage(this.text, this.isUser);
+}
+
 class ControllerModePage extends StatefulWidget {
   final String? boardId;
 
@@ -39,6 +45,12 @@ class _ControllerModePageState extends State<ControllerModePage> {
   bool _isLoading = false;
   String? _error;
 
+  // AI Chat State
+  final TextEditingController _chatController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final List<_AIChatMessage> _chatMessages = [];
+  bool _waitingForAnswer = false;
+
   @override
   void initState() {
     super.initState();
@@ -49,6 +61,13 @@ class _ControllerModePageState extends State<ControllerModePage> {
     if (widget.boardId != null) {
       _loadData();
     }
+  }
+
+  @override
+  void dispose() {
+    _chatController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   void _setupWebSocketListeners() {
@@ -62,9 +81,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
     // Callback cambio status
     _wsService.onStatusUpdate = (status) {
       if (mounted) {
-        // print('Status aggiornato da WebSocket: $status');
         setState(() {
-          // Normalizza lo status per sicurezza
           if (_validStatuses.contains(status)) {
             _currentStatus = status;
           }
@@ -72,35 +89,43 @@ class _ControllerModePageState extends State<ControllerModePage> {
       }
     };
 
-    // Sync Iniziale Componenti
+    // Sync Componenti & Net
     _wsService.onComponentSync = (states) {
-      if (mounted) {
-        setState(() => _componentStates = states);
-      }
+      if (mounted) setState(() => _componentStates = states);
     };
-
-    // Update Real-time Componenti
-    _wsService.onComponentUpdate = (id, state) {
-      if (mounted) {
-        setState(() {
-          _componentStates[id] = state;
-        });
-      }
-    };
-
-    // Sync Iniziale Net
     _wsService.onNetSync = (states) {
+      if (mounted) setState(() => _netStates = states);
+    };
+
+    // Updates Real-time
+    _wsService.onComponentUpdate = (id, state) {
+      if (mounted) setState(() => _componentStates[id] = state);
+    };
+    _wsService.onNetUpdate = (id, state) {
+      if (mounted) setState(() => _netStates[id] = state);
+    };
+
+    // AI Listeners
+    _wsService.onAIQuestion = (question, from) {
       if (mounted) {
-        setState(() => _netStates = states);
+        setState(() {
+          _chatMessages.add(_AIChatMessage(question, true));
+          _waitingForAnswer = true;
+        });
+        _scrollToBottom();
+
+        // Auto-trigger answer generation removed as per new flow requirements.
+        // The app now waits passively for the answer.
       }
     };
 
-    // Update Real-time Net
-    _wsService.onNetUpdate = (id, state) {
+    _wsService.onAIResponse = (response, done) {
       if (mounted) {
         setState(() {
-          _netStates[id] = state;
+          _chatMessages.add(_AIChatMessage(response, false));
+          _waitingForAnswer = false;
         });
+        _scrollToBottom();
       }
     };
 
@@ -115,6 +140,36 @@ class _ControllerModePageState extends State<ControllerModePage> {
         });
       }
     };
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _sendQuestion() async {
+    final text = _chatController.text.trim();
+    if (text.isEmpty || widget.boardId == null || _sessionId == null) return;
+
+    _chatController.clear();
+    // Non aggiungiamo nulla alla lista locale, aspettiamo il broadcast
+
+    try {
+      await _boardService.sendTextAssistance(
+        widget.boardId!,
+        _sessionId!,
+        text,
+      );
+    } catch (e) {
+      print('Errore invio domanda: $e');
+    }
   }
 
   Future<void> _loadData() async {
@@ -196,7 +251,11 @@ class _ControllerModePageState extends State<ControllerModePage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.link_off, size: 64, color: Colors.orange),
+              Icon(
+                Icons.link_off,
+                size: 64,
+                color: Theme.of(context).colorScheme.tertiary,
+              ),
               const SizedBox(height: 16),
               Text(
                 'Sessione terminata',
@@ -240,43 +299,183 @@ class _ControllerModePageState extends State<ControllerModePage> {
             context.pop();
           },
         ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
-          child: _buildModeSelector(),
-        ),
       ),
-      body: _buildBody(),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          // Breakpoint arbitrario per Desktop/Mobile (700px)
+          if (constraints.maxWidth > 700) {
+            return _buildDesktopLayout();
+          } else {
+            return _buildMobileLayout();
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _buildDesktopLayout() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Panello Sinistro: Mode Selector + Content
+        Expanded(
+          flex: 2,
+          child: Column(
+            children: [
+              _buildModeSelector(),
+              Expanded(child: _buildContentArea()),
+            ],
+          ),
+        ),
+        // Separatore
+        const VerticalDivider(width: 1),
+        // Pannello Destro: AI Chat
+        SizedBox(width: 350, child: _buildAIChatSection()),
+      ],
+    );
+  }
+
+  Widget _buildMobileLayout() {
+    return Column(
+      children: [
+        _buildModeSelector(),
+        Expanded(child: _buildContentArea()),
+        const Divider(height: 1),
+        // Sezione AI Chat in fondo
+        SizedBox(height: 300, child: _buildAIChatSection()),
+      ],
     );
   }
 
   // Menu selezione modalità
   Widget _buildModeSelector() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: _validStatuses.map((status) {
-          final isSelected = _currentStatus == status;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8.0),
-            child: ChoiceChip(
-              label: Text(status),
-              selected: isSelected,
-              onSelected: (_) => _changeStatus(status),
-              selectedColor: Colors.blue.shade100,
-              // Stile visivo per la selezione
-              labelStyle: TextStyle(
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected ? Colors.blue : Colors.black,
+    return Container(
+      color: Theme.of(context).colorScheme.surface,
+      width: double.infinity,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: _validStatuses.map((status) {
+            final isSelected = _currentStatus == status;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: ChoiceChip(
+                label: Text(status),
+                selected: isSelected,
+                onSelected: (_) => _changeStatus(status),
+                selectedColor: Theme.of(context).colorScheme.tertiary,
+                // Stile visivo per la selezione
+                labelStyle: TextStyle(
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected
+                      ? Theme.of(context).colorScheme.onTertiary
+                      : Theme.of(context).colorScheme.onSurface,
+                ),
               ),
-            ),
-          );
-        }).toList(),
+            );
+          }).toList(),
+        ),
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildAIChatSection() {
+    return Column(
+      children: [
+        // Header Chat
+        Container(
+          padding: const EdgeInsets.all(8),
+          color: Theme.of(context).colorScheme.primaryContainer,
+          width: double.infinity,
+          child: Text(
+            'AI Assistant',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
+            ),
+          ),
+        ),
+        // History
+        Expanded(
+          child: ListView.builder(
+            controller: _scrollController,
+            padding: const EdgeInsets.all(8),
+            itemCount: _chatMessages.length,
+            itemBuilder: (context, index) {
+              final msg = _chatMessages[index];
+              return Align(
+                alignment: msg.isUser
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: msg.isUser
+                        ? Theme.of(context).colorScheme.tertiary
+                        : Theme.of(context).colorScheme.surface,
+                    border: msg.isUser
+                        ? null
+                        : Border.all(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    msg.text,
+                    style: TextStyle(
+                      color: msg.isUser
+                          ? Theme.of(context).colorScheme.onTertiary
+                          : Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        // Input Area
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _chatController,
+                  enabled: !_waitingForAnswer,
+                  onSubmitted: (_) =>
+                      !_waitingForAnswer ? _sendQuestion() : null,
+                  decoration: const InputDecoration(
+                    hintText: 'Scrivi una domanda...',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: _waitingForAnswer
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send),
+                onPressed: _waitingForAnswer ? null : _sendQuestion,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContentArea() {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -286,7 +485,10 @@ class _ControllerModePageState extends State<ControllerModePage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(_error!, style: const TextStyle(color: Colors.red)),
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () => widget.boardId != null ? _loadData() : null,
@@ -316,7 +518,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.construction, size: 64, color: Colors.grey),
+              const Icon(Icons.construction, size: 64, color: Colors.grey),
               const SizedBox(height: 16),
               Text(
                 'Modalità $_currentStatus',

@@ -21,7 +21,7 @@ class NavBar extends StatelessWidget implements PreferredSizeWidget {
         },
         tooltip: 'Back',
       ),
-      backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      backgroundColor: Theme.of(context).colorScheme.primary,
     );
   }
 

@@ -16,8 +16,34 @@ class MyApp extends StatelessWidget {
     return MaterialApp.router(
       title: 'ARBoard',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: const ColorScheme(
+          brightness: Brightness.light,
+          primary: Color(0xFF012035),
+          onPrimary: Colors.white,
+          primaryContainer: Color(0xFF022840),
+          onPrimaryContainer: Colors.white,
+          secondary: Color(0xFFFFFFFF),
+          onSecondary: Color(0xFF012035),
+          tertiary: Color(0xFF8FBABF),
+          onTertiary: Color(0xFF012035),
+          surface: Color(0xFFFFFFFF),
+          onSurface: Color(0xFF012035),
+          outline: Color(0xFF666C73),
+          error: Colors.red,
+          onError: Colors.white,
+        ),
+        scaffoldBackgroundColor: const Color(0xFFFFFFFF),
         useMaterial3: true,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF012035),
+          foregroundColor: Colors.white,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF012035),
+            foregroundColor: Colors.white,
+          ),
+        ),
       ),
       routerConfig: AppRouter.router,
     );

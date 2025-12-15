@@ -6,10 +6,10 @@ import '../models/board.dart';
 import '../services/board_service.dart';
 
 /// Board Management Page
-/// 
+///
 /// This page allows users to manage existing boards through a dropdown menu
 /// and create new boards via the NEW button.
-/// 
+///
 /// Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 4.1, 4.2
 class BoardManagementPage extends StatefulWidget {
   const BoardManagementPage({super.key});
@@ -48,9 +48,7 @@ class _BoardManagementPageState extends State<BoardManagementPage> {
                   return const Row(
                     children: [
                       Expanded(
-                        child: Center(
-                          child: CircularProgressIndicator(),
-                        ),
+                        child: Center(child: CircularProgressIndicator()),
                       ),
                     ],
                   );
@@ -63,7 +61,9 @@ class _BoardManagementPageState extends State<BoardManagementPage> {
                       Expanded(
                         child: Text(
                           'Error loading boards: ${snapshot.error}',
-                          style: const TextStyle(color: Colors.red),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
                         ),
                       ),
                     ],
@@ -111,7 +111,9 @@ class _BoardManagementPageState extends State<BoardManagementPage> {
                           : () {
                               // Navigate to board detail page
                               context.go(
-                                AppRoutes.buildBoardDetailRoute(_selectedBoard!.name),
+                                AppRoutes.buildBoardDetailRoute(
+                                  _selectedBoard!.name,
+                                ),
                               );
                             },
                       child: const Text('EDIT'),
@@ -126,4 +128,3 @@ class _BoardManagementPageState extends State<BoardManagementPage> {
     );
   }
 }
-
