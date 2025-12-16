@@ -9,29 +9,56 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFF012035),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              onPressed: () {
-                context.go(AppRoutes.boardManagement);
-              },
-              child: const Text('Board Management'),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                context.go(AppRoutes.boardTool);
-              },
-              child: const Text('Board Tool'),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () => _showSessionSelectionDialog(context),
-              child: const Text('Controller Mode'),
-            ),
-          ],
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 40),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Logo
+              Padding(
+                padding: const EdgeInsets.only(bottom: 60.0),
+                child: Image.asset(
+                  'assets/logo.png',
+                  height: 150, // Adjust height as needed
+                  fit: BoxFit.contain,
+                ),
+              ),
+              // Buttons Area using Wrap for responsiveness
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                child: Wrap(
+                  spacing: 40,
+                  runSpacing: 40,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    _HomeButton(
+                      title: 'Board Management',
+                      imagePath: 'assets/button/board_management.jpg',
+                      onTap: () {
+                        context.go(AppRoutes.boardManagement);
+                      },
+                    ),
+                    _HomeButton(
+                      title: 'Board Tool',
+                      subtitle: 'Work in Progress',
+                      imagePath: 'assets/button/board_tool_wip.jpg',
+                      isDisabled: true,
+                      onTap: () {
+                        // Disabled
+                      },
+                    ),
+                    _HomeButton(
+                      title: 'Controller Mode',
+                      imagePath: 'assets/button/controller_mode.jpg',
+                      onTap: () => _showSessionSelectionDialog(context),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -48,7 +75,7 @@ class HomePage extends StatelessWidget {
     try {
       sessions = await wsService.getActiveSessions();
     } catch (e) {
-      print('Error fetching sessions: $e');
+      debugPrint('Error fetching sessions: $e');
     }
 
     if (!context.mounted) return;
@@ -128,6 +155,122 @@ class HomePage extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _HomeButton extends StatefulWidget {
+  final String title;
+  final String? subtitle;
+  final String imagePath;
+  final VoidCallback onTap;
+  final bool isDisabled;
+
+  const _HomeButton({
+    super.key,
+    required this.title,
+    this.subtitle,
+    required this.imagePath,
+    required this.onTap,
+    this.isDisabled = false,
+  });
+
+  @override
+  State<_HomeButton> createState() => _HomeButtonState();
+}
+
+class _HomeButtonState extends State<_HomeButton> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.isDisabled ? null : widget.onTap,
+      child: MouseRegion(
+        onEnter: (_) {
+          if (!widget.isDisabled) {
+            setState(() => _isHovered = true);
+          }
+        },
+        onExit: (_) {
+          if (!widget.isDisabled) {
+            setState(() => _isHovered = false);
+          }
+        },
+        cursor: widget.isDisabled
+            ? SystemMouseCursors.forbidden
+            : SystemMouseCursors.click,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Internal Square Button
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 250,
+              height: 250,
+              decoration: BoxDecoration(
+                color: Colors.black12,
+                borderRadius: BorderRadius.circular(20),
+                image: DecorationImage(
+                  image: AssetImage(widget.imagePath),
+                  fit: BoxFit.cover,
+                  colorFilter: widget.isDisabled
+                      ? const ColorFilter.mode(
+                          Colors.grey,
+                          BlendMode.saturation,
+                        )
+                      : null,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(_isHovered ? 0.5 : 0.3),
+                    blurRadius: _isHovered ? 15 : 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+                border: Border.all(
+                  color: const Color(
+                    0xFF8FBABF,
+                  ).withOpacity(_isHovered ? 1.0 : 0.5),
+                  width: _isHovered ? 2 : 1,
+                ),
+              ),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: _isHovered && !widget.isDisabled
+                      ? Colors.black.withOpacity(0.3) // Darken on hover
+                      : Colors.transparent,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Text outside
+            Text(
+              widget.title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (widget.subtitle != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                widget.subtitle!,
+                style: const TextStyle(
+                  color: Colors.orangeAccent,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

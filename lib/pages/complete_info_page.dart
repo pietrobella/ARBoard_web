@@ -210,7 +210,7 @@ class _CompleteInfoPageState extends State<CompleteInfoPage> {
                       ),
                     ),
                     child: Ink.image(
-                      image: const AssetImage('assets/ipc_flow_button.png'),
+                      image: const AssetImage('assets/button/ipc_flow_button.png'),
                       fit: BoxFit.cover,
                       width: 300,
                       height: 300,
