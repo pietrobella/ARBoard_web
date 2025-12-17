@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../router/app_router.dart';
 import '../services/websocket_service.dart';
+import '../config/api_config.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -67,8 +68,8 @@ class HomePage extends StatelessWidget {
   Future<void> _showSessionSelectionDialog(BuildContext context) async {
     final wsService = ARBoardWebSocket();
     // Initialize if not already done (assuming localhost for now, or use config)
-    // TODO: Load URL from config
-    wsService.init('http://localhost:5090');
+    // Initialize with dynamic base URL from ApiConfig
+    wsService.init(ApiConfig.baseUrl);
 
     // Fetch sessions
     List<Map<String, dynamic>> sessions = [];
