@@ -77,7 +77,7 @@ class BoardService {
   /// Throws an Exception if the request fails
   Future<void> deleteBoard(String id) async {
     try {
-      await ApiClient.delete('/boards/$id');
+      await ApiClient.delete('/board/$id');
     } catch (e) {
       throw Exception('Error deleting board: $e');
     }
@@ -454,6 +454,49 @@ class BoardService {
       throw Exception('Invalid response format: expected List');
     } catch (e) {
       throw Exception('Error fetching nets: $e');
+    }
+  }
+
+  /// Fetches distinct parts for a board
+  ///
+  /// Makes a GET request to /ipc/components/parts/{boardId}
+  Future<Map<String, dynamic>> getDistinctParts(
+    String boardId, {
+    bool includeNull = false,
+  }) async {
+    try {
+      final queryParams = includeNull ? '?include_null=true' : '';
+      final data = await ApiClient.get(
+        '/components/parts/$boardId$queryParams', // Note: ApiClient might not handle query params in path automatically if strict, but based on usage it seems okay or I should append it.
+      );
+
+      if (data is Map<String, dynamic>) {
+        return data;
+      }
+
+      throw Exception('Invalid response format: expected Map');
+    } catch (e) {
+      throw Exception('Error fetching parts: $e');
+    }
+  }
+
+  /// Fetches components by part for a board
+  ///
+  /// Makes a GET request to /ipc/components/{boardId}/by_part/{partName}
+  Future<List<Component>> getComponentsByPart(
+    String boardId,
+    int partId,
+  ) async {
+    try {
+      final data = await ApiClient.get('/components/$boardId/by_part/$partId');
+
+      if (data is List) {
+        return data.map((json) => Component.fromJson(json)).toList();
+      }
+
+      throw Exception('Invalid response format: expected List');
+    } catch (e) {
+      throw Exception('Error fetching components by part: $e');
     }
   }
 

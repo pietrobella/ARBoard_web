@@ -26,10 +26,13 @@ class ApiClient {
   }) async {
     try {
       final url = ApiConfig.buildUrl(endpoint);
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {..._defaultHeaders, ...?headers},
-      );
+
+      // GET requests typically don't need Content-Type, and including it
+      // can trigger unnecessary CORS preflight (OPTIONS) requests.
+      final requestHeaders = {..._defaultHeaders, ...?headers};
+      requestHeaders.remove('Content-Type');
+
+      final response = await http.get(Uri.parse(url), headers: requestHeaders);
 
       return _handleResponse(response);
     } catch (e) {

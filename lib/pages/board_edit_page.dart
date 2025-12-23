@@ -89,6 +89,47 @@ class _BoardEditPageState extends State<BoardEditPage> {
     }
   }
 
+  Future<void> _deleteBoard() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Conferma eliminazione board'),
+        content: Text(
+          'Sei sicuro di voler eliminare la board "${_board!.name}" e tutti i suoi dati? Questa azione non può essere annullata.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annulla'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Elimina'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await _boardService.deleteBoard(_board!.id);
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Board eliminata')));
+          context.go(AppRoutes.boardManagement);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Errore durante l\'eliminazione: $e')),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _deleteSchematic(int id) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -704,6 +745,22 @@ class _BoardEditPageState extends State<BoardEditPage> {
               onPressed: () => context.go(AppRoutes.boardManagement),
               icon: const Icon(Icons.arrow_back),
               label: const Text('Torna a Board Management'),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Center(
+            child: ElevatedButton.icon(
+              onPressed: _deleteBoard,
+              icon: const Icon(Icons.delete_forever),
+              label: const Text('ELIMINA BOARD'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+              ),
             ),
           ),
         ],

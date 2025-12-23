@@ -4,12 +4,29 @@ import '../services/websocket_service.dart';
 import '../services/board_service.dart';
 import '../models/component.dart';
 import '../models/net.dart';
-import '../widgets/filterable_select_widget.dart';
 
 class _AIChatMessage {
   final String text;
   final bool isUser;
   _AIChatMessage(this.text, this.isUser);
+}
+
+class _Part {
+  final int? id;
+  final String name;
+
+  _Part({required this.id, required this.name});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _Part &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name;
+
+  @override
+  int get hashCode => id.hashCode ^ name.hashCode;
 }
 
 class ControllerModePage extends StatefulWidget {
@@ -28,9 +45,20 @@ class _ControllerModePageState extends State<ControllerModePage> {
   String? _sessionId;
   List<Component> _components = [];
   List<Net> _nets = []; // Lista delle net
-  Map<int, bool> _componentStates = {};
-  Map<int, bool> _netStates = {}; // Stati delle net
-  bool _isSessionTerminated = false; // Stato per sessione terminata
+  Map<int, List<bool>> _componentStates = {}; // [visible, assembled]
+  Map<int, bool> _netStates = {};
+  bool _isSessionTerminated = false;
+
+  // Assembly Mode State
+  List<_Part> _parts = [];
+  _Part? _selectedPart;
+  List<Component> _assemblyComponents = [];
+  bool _isLoadingParts = false;
+
+  // Search controller for components
+  final TextEditingController _componentSearchController =
+      TextEditingController();
+  final TextEditingController _netSearchController = TextEditingController();
 
   // Status corrente: 'Component', 'Net', 'Assembly', 'Function', 'Repair'
   String _currentStatus = 'Component';
@@ -61,12 +89,21 @@ class _ControllerModePageState extends State<ControllerModePage> {
     if (widget.boardId != null) {
       _loadData();
     }
+
+    _componentSearchController.addListener(() {
+      setState(() {});
+    });
+    _netSearchController.addListener(() {
+      setState(() {});
+    });
   }
 
   @override
   void dispose() {
     _chatController.dispose();
     _scrollController.dispose();
+    _componentSearchController.dispose();
+    _netSearchController.dispose();
     super.dispose();
   }
 
@@ -140,7 +177,31 @@ class _ControllerModePageState extends State<ControllerModePage> {
         });
       }
     };
+
+    // Part Selected
+    _wsService.onPartSelected = (partId) {
+      if (mounted) {
+        print('Part selected from server: $partId');
+        // Find the part object matching the ID
+        final newPart = _parts.firstWhere(
+          (p) => p.id == partId,
+          orElse: () => _nullPart(), // Default to Any/Null if not found
+        );
+
+        if (_selectedPart != newPart) {
+          setState(() {
+            _selectedPart = newPart;
+            _assemblyComponents = [];
+          });
+          if (newPart.id != null) {
+            _loadAssemblyComponents();
+          }
+        }
+      }
+    };
   }
+
+  _Part _nullPart() => _Part(id: null, name: 'Any');
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -209,6 +270,78 @@ class _ControllerModePageState extends State<ControllerModePage> {
         });
       }
     }
+
+    // Load parts if we are in Assembly mode or just preload them
+    await _loadParts();
+  }
+
+  Future<void> _loadParts() async {
+    if (widget.boardId == null) return;
+    try {
+      final result = await _boardService.getDistinctParts(
+        widget.boardId!,
+        includeNull: true,
+      );
+      if (mounted) {
+        final List<dynamic> rawParts = result['parts'] ?? [];
+        final List<_Part> parsedParts = rawParts.map((p) {
+          return _Part(id: p['id'] as int?, name: p['name'] as String);
+        }).toList();
+
+        // Add 'Any' option at the beginning if not present
+        // (Assuming server might not return explicit null part if includeNull is just for filtering?
+        // User request: "Uno di quei campi sarà anche 'Any'")
+        // We'll manually add 'Any' (id: null)
+        if (!parsedParts.any((p) => p.id == null)) {
+          parsedParts.insert(0, _nullPart());
+        }
+
+        setState(() {
+          _parts = parsedParts;
+          // Verify current selection is still valid
+          if (_selectedPart != null && !_parts.contains(_selectedPart)) {
+            _selectedPart = parsedParts.first; // Default to Any
+          } else if (_selectedPart == null && _parts.isNotEmpty) {
+            _selectedPart = parsedParts.first;
+          }
+        });
+      }
+    } catch (e) {
+      print('Error loading parts: $e');
+    }
+  }
+
+  Future<void> _loadAssemblyComponents() async {
+    if (widget.boardId == null ||
+        _selectedPart == null ||
+        _selectedPart!.id == null)
+      return;
+    setState(() => _isLoadingParts = true);
+    try {
+      final components = await _boardService.getComponentsByPart(
+        widget.boardId!,
+        _selectedPart!.id!,
+      );
+      if (mounted) {
+        setState(() {
+          _assemblyComponents = components;
+          _isLoadingParts = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading assembly components: $e');
+      if (mounted) setState(() => _isLoadingParts = false);
+    }
+  }
+
+  void _onPartChanged(_Part? newValue) {
+    if (newValue != null && newValue != _selectedPart) {
+      // Send socket event to server
+      // Server will respond with 'part:selected', triggering update.
+      _wsService.selectPart(newValue.id);
+
+      // We do NOT update state locally here, we wait for server confirmation.
+    }
   }
 
   void _changeStatus(String newStatus) {
@@ -221,14 +354,42 @@ class _ControllerModePageState extends State<ControllerModePage> {
 
   void _toggleComponent(int componentId) {
     print('Toggling component $componentId');
-    final currentState = _componentStates[componentId] ?? false;
+    final currentState = _componentStates[componentId] ?? [false, false];
+    final isVisible = currentState.isNotEmpty ? currentState[0] : false;
+    final isAssembled = currentState.length > 1 ? currentState[1] : false;
+
+    // In Component Mode, we typically just toggle visibility
+    final newVisible = !isVisible;
 
     // Optimistic Update
     setState(() {
-      _componentStates[componentId] = !currentState;
+      _componentStates[componentId] = [newVisible, isAssembled];
     });
 
-    _wsService.toggleComponent(componentId, !currentState);
+    _wsService.toggleComponent(componentId, newVisible, isAssembled);
+  }
+
+  void _setComponentAssembled(int componentId, bool assembled) {
+    final currentState = _componentStates[componentId] ?? [false, false];
+    final isVisible = currentState.isNotEmpty ? currentState[0] : false;
+
+    // Optimistic Update
+    setState(() {
+      _componentStates[componentId] = [isVisible, assembled];
+    });
+
+    _wsService.toggleComponent(componentId, isVisible, assembled);
+  }
+
+  void _toggleComponentVisibility(int componentId, bool visible) {
+    final currentState = _componentStates[componentId] ?? [false, false];
+    final isAssembled = currentState.length > 1 ? currentState[1] : false;
+
+    setState(() {
+      _componentStates[componentId] = [visible, isAssembled];
+    });
+
+    _wsService.toggleComponent(componentId, visible, isAssembled);
   }
 
   void _toggleNet(int netId) {
@@ -330,7 +491,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
         // Separatore
         const VerticalDivider(width: 1),
         // Pannello Destro: AI Chat
-        SizedBox(width: 350, child: _buildAIChatSection()),
+        Expanded(flex: 1, child: _buildAIChatSection()),
       ],
     );
   }
@@ -512,6 +673,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
       case 'Net':
         return _buildNetList();
       case 'Assembly':
+        return _buildAssemblyMode();
       case 'Function':
       case 'Repair':
         return Center(
@@ -539,16 +701,335 @@ class _ControllerModePageState extends State<ControllerModePage> {
       return const Center(child: Text('Nessun componente trovato.'));
     }
 
-    return SingleChildScrollView(
+    final activeComponents = _components.where((c) {
+      final state = _componentStates[c.id];
+      return state != null && state.isNotEmpty && state[0];
+    }).toList();
+    final inactiveComponents = _components.where((c) {
+      final state = _componentStates[c.id];
+      return state == null || state.isEmpty || !state[0];
+    }).toList();
+
+    // Filter inactive components based on search
+    final query = _componentSearchController.text.toLowerCase();
+    final filteredInactive = inactiveComponents.where((c) {
+      return c.name.toLowerCase().contains(query);
+    }).toList();
+
+    return Padding(
       padding: const EdgeInsets.all(16),
-      child: Column(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          FilterableMultiSelectWidget<Component>(
-            items: _components,
-            labelBuilder: (c) => c.name,
-            isSelected: (c) => _componentStates[c.id] ?? false,
-            onToggle: (c, val) => _toggleComponent(c.id),
-            hintText: 'Cerca Componenti...',
+          // Left Column: Available / Inactive
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _componentSearchController,
+                  decoration: const InputDecoration(
+                    hintText: 'Cerca Componenti...',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      vertical: 0,
+                      horizontal: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: ListView.builder(
+                      itemCount: filteredInactive.length,
+                      itemBuilder: (context, index) {
+                        final item = filteredInactive[index];
+                        return Container(
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                            ),
+                          ),
+                          child: ListTile(
+                            title: Text(item.name),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.add_circle_outline),
+                              color: Theme.of(context).colorScheme.primary,
+                              onPressed: () => _toggleComponent(item.id),
+                            ),
+
+                            onTap: null, // Interaction moved to IconButton
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Right Column: Active
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header to align with search bar height (approx 48)
+                SizedBox(
+                  height: 48,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Attivi (${activeComponents.length})',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: ListView.builder(
+                      itemCount: activeComponents.length,
+                      itemBuilder: (context, index) {
+                        final item = activeComponents[index];
+                        return Container(
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                            ),
+                          ),
+                          child: ListTile(
+                            title: Text(
+                              item.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.remove_circle_outline),
+                              color: Theme.of(context).colorScheme.error,
+                              onPressed: () => _toggleComponent(item.id),
+                            ),
+
+                            onTap: null, // Interaction moved to IconButton
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAssemblyMode() {
+    if (_parts.isEmpty) {
+      if (_isLoadingParts) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      return const Center(child: Text('Nessuna Part disponibile.'));
+    }
+
+    return Column(
+      children: [
+        // Parts Dropdown
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: Theme.of(context).colorScheme.surfaceContainer,
+          child: Row(
+            children: [
+              const Text(
+                'Seleziona Part:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: DropdownButton<_Part>(
+                  value: _selectedPart,
+                  isExpanded: true,
+                  isDense: true, // More compact
+                  hint: const Text('Seleziona una part'),
+                  items: _parts.map((_Part part) {
+                    return DropdownMenuItem<_Part>(
+                      value: part,
+                      child: Text(part.name),
+                    );
+                  }).toList(),
+                  onChanged: _onPartChanged,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_isLoadingParts)
+          const Expanded(child: Center(child: CircularProgressIndicator()))
+        else if (_assemblyComponents.isEmpty)
+          const Expanded(
+            child: Center(child: Text('Nessun componente in questa part.')),
+          )
+        else
+          Expanded(child: _buildAssemblyColumns()),
+      ],
+    );
+  }
+
+  Widget _buildAssemblyColumns() {
+    // Left: Non-Assembled (state[1] == false)
+    // Right: Assembled (state[1] == true)
+    final nonAssembled = _assemblyComponents.where((c) {
+      final state = _componentStates[c.id];
+      // Default to non-assembled if state is missing
+      return state == null || state.length < 2 || !state[1];
+    }).toList();
+
+    final assembled = _assemblyComponents.where((c) {
+      final state = _componentStates[c.id];
+      return state != null && state.length >= 2 && state[1];
+    }).toList();
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Left Column
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Da Assemblare (${nonAssembled.length})',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: ListView.builder(
+                      itemCount: nonAssembled.length,
+                      itemBuilder: (context, index) {
+                        final item = nonAssembled[index];
+                        final state =
+                            _componentStates[item.id] ?? [false, false];
+                        final isVisible = state.isNotEmpty ? state[0] : false;
+
+                        return Container(
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                            ),
+                          ),
+                          child: ListTile(
+                            title: Text(item.name),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Toggle Visibility
+                                IconButton(
+                                  icon: Icon(
+                                    isVisible
+                                        ? Icons.visibility
+                                        : Icons.visibility_off,
+                                    color: isVisible
+                                        ? Theme.of(context).colorScheme.primary
+                                        : Colors.grey,
+                                  ),
+                                  onPressed: () => _toggleComponentVisibility(
+                                    item.id,
+                                    !isVisible,
+                                  ),
+                                ),
+                                // Flag as Assembled
+                                IconButton(
+                                  icon: const Icon(Icons.flag), // Flag icon
+                                  color: Theme.of(context).colorScheme.tertiary,
+                                  onPressed: () =>
+                                      _setComponentAssembled(item.id, true),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Right Column
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Assemblati (${assembled.length})',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: ListView.builder(
+                      itemCount: assembled.length,
+                      itemBuilder: (context, index) {
+                        final item = assembled[index];
+                        return Container(
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                            ),
+                          ),
+                          child: ListTile(
+                            title: Text(
+                              item.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.undo),
+                              color: Theme.of(context).colorScheme.error,
+                              onPressed: () =>
+                                  _setComponentAssembled(item.id, false),
+                              tooltip: 'Sposta nei non assemblati',
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -560,16 +1041,132 @@ class _ControllerModePageState extends State<ControllerModePage> {
       return const Center(child: Text('Nessuna net trovata.'));
     }
 
-    return SingleChildScrollView(
+    final activeNets = _nets.where((n) => _netStates[n.id] == true).toList();
+    final inactiveNets = _nets.where((n) => _netStates[n.id] != true).toList();
+
+    // Filter inactive nets based on search
+    final query = _netSearchController.text.toLowerCase();
+    final filteredInactive = inactiveNets.where((n) {
+      return n.name.toLowerCase().contains(query);
+    }).toList();
+
+    return Padding(
       padding: const EdgeInsets.all(16),
-      child: Column(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          FilterableMultiSelectWidget<Net>(
-            items: _nets,
-            labelBuilder: (n) => n.name,
-            isSelected: (n) => _netStates[n.id] ?? false,
-            onToggle: (n, val) => _toggleNet(n.id),
-            hintText: 'Cerca Net...',
+          // Left Column: Available / Inactive
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _netSearchController,
+                  decoration: const InputDecoration(
+                    hintText: 'Cerca Net...',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(
+                      vertical: 0,
+                      horizontal: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: ListView.builder(
+                      itemCount: filteredInactive.length,
+                      itemBuilder: (context, index) {
+                        final item = filteredInactive[index];
+                        return Container(
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                            ),
+                          ),
+                          child: ListTile(
+                            title: Text(item.name),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.add_circle_outline),
+                              color: Theme.of(context).colorScheme.primary,
+                              onPressed: () => _toggleNet(item.id),
+                            ),
+
+                            onTap: null, // Interaction moved to IconButton
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Right Column: Active
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header to align with search bar height (approx 48)
+                SizedBox(
+                  height: 48,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Attivi (${activeNets.length})',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: ListView.builder(
+                      itemCount: activeNets.length,
+                      itemBuilder: (context, index) {
+                        final item = activeNets[index];
+                        return Container(
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                            ),
+                          ),
+                          child: ListTile(
+                            title: Text(
+                              item.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.remove_circle_outline),
+                              color: Theme.of(context).colorScheme.error,
+                              onPressed: () => _toggleNet(item.id),
+                            ),
+
+                            onTap: null, // Interaction moved to IconButton
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

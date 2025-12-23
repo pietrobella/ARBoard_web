@@ -11,16 +11,17 @@ class ARBoardWebSocket {
   Function(String)? onSessionCreated;
   Function(String)? onSessionJoined;
   Function(int)? onBoardSelected;
-  Function(Map<int, bool>)? onComponentSync;
+  Function(Map<int, List<bool>>)? onComponentSync; // Changed to List<bool>
   Function(Map<int, bool>)? onNetSync;
   Function(List<Map<String, dynamic>>)? onAIHistory;
-  Function(int, bool)? onComponentUpdate;
+  Function(int, List<bool>)? onComponentUpdate; // Changed to List<bool>
   Function(int, bool)? onNetUpdate;
   Function(String, String)? onAIQuestion;
   Function(String, bool)? onAIResponse;
   Function(String)? onError;
   Function(String)? onStatusUpdate; // Callback per aggiornamento status
   Function(String)? onSessionTerminated; // Callback per sessione terminata
+  Function(int?)? onPartSelected; // Callback per selezione part
 
   // Singleton instance
   static final ARBoardWebSocket _instance = ARBoardWebSocket._internal();
@@ -75,13 +76,18 @@ class ARBoardWebSocket {
       onBoardSelected?.call(currentBoardId!);
     });
 
+    socket.on('part:active', (data) {
+      final partId = data['part_id'] as int?;
+      onPartSelected?.call(partId);
+    });
+
     // Sync
     socket.on('component:sync', (data) {
-      onComponentSync?.call(_parseStates(data['states']));
+      onComponentSync?.call(_parseComponentStates(data['states']));
     });
 
     socket.on('net:sync', (data) {
-      onNetSync?.call(_parseStates(data['states']));
+      onNetSync?.call(_parseNetStates(data['states']));
     });
 
     socket.on('ai:history', (data) {
@@ -90,7 +96,17 @@ class ARBoardWebSocket {
 
     // Updates
     socket.on('component:state', (data) {
-      onComponentUpdate?.call(data['component_id'], data['state']);
+      final rawState = data['state'];
+      List<bool> stateTuple = [false, false];
+
+      if (rawState is bool) {
+        stateTuple = [rawState, false];
+      } else if (rawState is List && rawState.isNotEmpty) {
+        stateTuple = rawState
+            .map((e) => e as bool)
+            .toList(); // Ensure List<bool>
+      }
+      onComponentUpdate?.call(data['component_id'], stateTuple);
     });
 
     socket.on('net:state', (data) {
@@ -107,11 +123,40 @@ class ARBoardWebSocket {
     });
   }
 
-  Map<int, bool> _parseStates(dynamic states) {
+  Map<int, List<bool>> _parseComponentStates(dynamic states) {
+    final result = <int, List<bool>>{};
+    if (states is Map) {
+      states.forEach((key, value) {
+        final id = int.tryParse(key.toString());
+        if (id == null) return;
+
+        if (value is bool) {
+          result[id] = [value, false];
+        } else if (value is List) {
+          result[id] = value.map((e) => e as bool).toList();
+        } else {
+          // Default fallback
+          result[id] = [false, false];
+        }
+      });
+    }
+    return result;
+  }
+
+  Map<int, bool> _parseNetStates(dynamic states) {
     final result = <int, bool>{};
     if (states is Map) {
       states.forEach((key, value) {
-        result[int.parse(key.toString())] = value as bool;
+        final id = int.tryParse(key.toString());
+        if (id == null) return;
+
+        if (value is bool) {
+          result[id] = value;
+        } else if (value is List && value.isNotEmpty) {
+          result[id] = value[0] as bool;
+        } else {
+          result[id] = false;
+        }
       });
     }
     return result;
@@ -129,11 +174,13 @@ class ARBoardWebSocket {
   void selectBoard(int boardId) =>
       socket.emit('board:select', {'board_id': boardId});
 
-  void toggleComponent(int componentId, bool state) {
-    print('WS: Emitting component:toggle ($componentId, $state)');
+  void toggleComponent(int componentId, bool visible, bool assembled) {
+    print(
+      'WS: Emitting component:toggle ($componentId, vis:$visible, asm:$assembled)',
+    );
     socket.emit('component:toggle', {
       'component_id': componentId,
-      'state': state,
+      'state': [visible, assembled],
     });
   }
 
@@ -163,4 +210,10 @@ class ARBoardWebSocket {
   // === Gestione Status ===
   void setStatus(String status) =>
       socket.emit('session:status', {'status': status});
+
+  // === Gestione Part ===
+  void selectPart(int? partId) {
+    print('WS: Emitting part:select ($partId)');
+    socket.emit('part:select', {'part_id': partId});
+  }
 }
