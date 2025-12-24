@@ -4,6 +4,7 @@ import '../services/websocket_service.dart';
 import '../services/board_service.dart';
 import '../models/component.dart';
 import '../models/net.dart';
+import '../models/label.dart';
 
 class _AIChatMessage {
   final String text;
@@ -54,6 +55,15 @@ class _ControllerModePageState extends State<ControllerModePage> {
   _Part? _selectedPart;
   List<Component> _assemblyComponents = [];
   bool _isLoadingParts = false;
+
+  // Function Mode State
+  List<Label> _labels = [];
+  Label? _selectedFunction;
+  List<SubLabel> _currentSubLabels = [];
+  Map<int, bool> _subLabelStates = {};
+  bool _noSubLabelActive = false;
+  bool _isLoadingFunctions = false;
+  bool _isLoadingSubLabels = false;
 
   // Search controller for components
   final TextEditingController _componentSearchController =
@@ -199,9 +209,40 @@ class _ControllerModePageState extends State<ControllerModePage> {
         }
       }
     };
+
+    // Function Selected
+    _wsService.onFunctionSelected = (functionId) {
+      if (mounted) {
+        print('Function selected from server: $functionId');
+        // Find label
+        final newFunction = _labels.firstWhere(
+          (l) => l.id == functionId,
+          orElse: () => _nullLabel(),
+        );
+
+        if (_selectedFunction?.id != newFunction.id) {
+          setState(() {
+            _selectedFunction = newFunction;
+            _currentSubLabels = [];
+            _noSubLabelActive = false; // Reset toggle
+          });
+          if (newFunction.id != -1) {
+            _loadSubLabels(newFunction.id);
+          }
+        }
+      }
+    };
+
+    _wsService.onSubLabelUpdate = (subLabelId, state) {
+      if (mounted) {
+        setState(() => _subLabelStates[subLabelId] = state);
+      }
+    };
   }
 
   _Part _nullPart() => _Part(id: null, name: 'Any');
+  Label _nullLabel() =>
+      Label(id: -1, name: 'None'); // Using -1 for 'None' as ID is int
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -273,6 +314,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
 
     // Load parts if we are in Assembly mode or just preload them
     await _loadParts();
+    await _loadFunctions();
   }
 
   Future<void> _loadParts() async {
@@ -336,11 +378,62 @@ class _ControllerModePageState extends State<ControllerModePage> {
 
   void _onPartChanged(_Part? newValue) {
     if (newValue != null && newValue != _selectedPart) {
+      // Show loader immediately to avoid seeing previous components turn off
+      setState(() => _isLoadingParts = true);
+
       // Send socket event to server
       // Server will respond with 'part:selected', triggering update.
       _wsService.selectPart(newValue.id);
 
       // We do NOT update state locally here, we wait for server confirmation.
+    }
+  }
+
+  void _onFunctionSelected(Label newValue) {
+    if (newValue.id != _selectedFunction?.id) {
+      _wsService.setFunction(newValue.id == -1 ? null : newValue.id);
+      // Wait for server confirmation
+    }
+  }
+
+  Future<void> _loadFunctions() async {
+    if (widget.boardId == null) return;
+    setState(() => _isLoadingFunctions = true);
+    try {
+      final labels = await _boardService.getLabels(widget.boardId!);
+      if (mounted) {
+        // Add "None" (Any) option.
+        if (!labels.any((l) => l.id == -1)) {
+          labels.insert(0, _nullLabel()); // -1 for None
+        }
+        setState(() {
+          _labels = labels;
+          // Default selection if not set
+          if (_selectedFunction == null && _labels.isNotEmpty) {
+            _selectedFunction = labels.first;
+          }
+          _isLoadingFunctions = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading functions: $e');
+      if (mounted) setState(() => _isLoadingFunctions = false);
+    }
+  }
+
+  Future<void> _loadSubLabels(int labelId) async {
+    setState(() => _isLoadingSubLabels = true);
+    try {
+      final subLabels = await _boardService.getSubLabels(labelId);
+      if (mounted) {
+        setState(() {
+          _currentSubLabels = subLabels;
+          _isLoadingSubLabels = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading sublabels: $e');
+      if (mounted) setState(() => _isLoadingSubLabels = false);
     }
   }
 
@@ -675,6 +768,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
       case 'Assembly':
         return _buildAssemblyMode();
       case 'Function':
+        return _buildFunctionMode();
       case 'Repair':
         return Center(
           child: Column(
@@ -694,6 +788,175 @@ class _ControllerModePageState extends State<ControllerModePage> {
       default:
         return const Center(child: Text('Stato sconosciuto'));
     }
+  }
+
+  Widget _buildFunctionMode() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Left Column: Function List (Labels)
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Functions',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: _isLoadingFunctions
+                      ? const Center(child: CircularProgressIndicator())
+                      : ListView.builder(
+                          itemCount: _labels.length,
+                          itemBuilder: (context, index) {
+                            final label = _labels[index];
+                            final isSelected =
+                                _selectedFunction?.id == label.id;
+                            return Column(
+                              children: [
+                                ListTile(
+                                  title: Text(label.name),
+                                  selected: isSelected,
+                                  selectedTileColor: Theme.of(
+                                    context,
+                                  ).colorScheme.primaryContainer,
+                                  onTap: () => _onFunctionSelected(label),
+                                ),
+                                if (isSelected &&
+                                    label.id != -1 &&
+                                    _currentSubLabels.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.only(left: 16.0),
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerHighest,
+                                    child: _isLoadingSubLabels
+                                        ? const Padding(
+                                            padding: EdgeInsets.all(8.0),
+                                            child: Center(
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            ),
+                                          )
+                                        : Column(
+                                            children: _currentSubLabels.map((
+                                              sub,
+                                            ) {
+                                              final isActive =
+                                                  _subLabelStates[sub.id] ??
+                                                  false;
+                                              return SwitchListTile(
+                                                title: Text(sub.name),
+                                                value: isActive,
+                                                onChanged: (val) {
+                                                  setState(
+                                                    () =>
+                                                        _subLabelStates[sub
+                                                                .id] =
+                                                            val,
+                                                  );
+                                                  _wsService.toggleSubLabel(
+                                                    sub.id,
+                                                    val,
+                                                  );
+                                                },
+                                              );
+                                            }).toList(),
+                                          ),
+                                  ),
+                              ],
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Right Column
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Top Toggle: Show No-Sublabel Component
+                SwitchListTile(
+                  title: const Text('Show no-sublabel component'),
+                  value: _noSubLabelActive,
+                  onChanged: (val) {
+                    if (_selectedFunction != null &&
+                        _selectedFunction!.id != -1) {
+                      setState(() => _noSubLabelActive = val);
+                      _wsService.toggleNoSubLabel(_selectedFunction!.id, val);
+                    }
+                  },
+                ),
+                const Divider(),
+                // Row 1: Active Components
+                const Text(
+                  'Active Components',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Expanded(child: _buildActiveComponentsList()),
+                const Divider(),
+                // Row 2: Active Nets
+                const Text(
+                  'Active Nets',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Expanded(child: _buildActiveNetsList()),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveComponentsList() {
+    final activeComponents = _components.where((c) {
+      final state = _componentStates[c.id];
+      return state != null && state.isNotEmpty && state[0];
+    }).toList();
+
+    if (activeComponents.isEmpty) {
+      return const Center(child: Text('No active components'));
+    }
+    return ListView.builder(
+      itemCount: activeComponents.length,
+      itemBuilder: (context, index) {
+        return ListTile(
+          title: Text(activeComponents[index].name),
+          leading: const Icon(
+            Icons.settings_input_component,
+            color: Colors.green,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActiveNetsList() {
+    final activeNets = _nets.where((n) {
+      return _netStates[n.id] == true;
+    }).toList();
+
+    if (activeNets.isEmpty) {
+      return const Center(child: Text('No active nets'));
+    }
+
+    return ListView.builder(
+      itemCount: activeNets.length,
+      itemBuilder: (context, index) {
+        return ListTile(
+          title: Text(activeNets[index].name),
+          leading: const Icon(Icons.hub, color: Colors.blue),
+        );
+      },
+    );
   }
 
   Widget _buildComponentList() {

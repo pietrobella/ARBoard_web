@@ -22,6 +22,8 @@ class ARBoardWebSocket {
   Function(String)? onStatusUpdate; // Callback per aggiornamento status
   Function(String)? onSessionTerminated; // Callback per sessione terminata
   Function(int?)? onPartSelected; // Callback per selezione part
+  Function(int?)? onFunctionSelected; // Callback per selezione function
+  Function(int, bool)? onSubLabelUpdate; // Callback per stato sublabel
 
   // Singleton instance
   static final ARBoardWebSocket _instance = ARBoardWebSocket._internal();
@@ -121,6 +123,16 @@ class ARBoardWebSocket {
     socket.on('ai:response', (data) {
       onAIResponse?.call(data['response'], data['done']);
     });
+
+    // Function Mode
+    socket.on('function:active', (data) {
+      final functionId = data['label_id'] as int?;
+      onFunctionSelected?.call(functionId);
+    });
+
+    socket.on('subfunction:state', (data) {
+      onSubLabelUpdate?.call(data['sublabel_id'], data['state']);
+    });
   }
 
   Map<int, List<bool>> _parseComponentStates(dynamic states) {
@@ -215,5 +227,26 @@ class ARBoardWebSocket {
   void selectPart(int? partId) {
     print('WS: Emitting part:select ($partId)');
     socket.emit('part:select', {'part_id': partId});
+  }
+
+  // === Gestione Function / Label ===
+  void setFunction(int? labelId, {bool state = true}) {
+    print('WS: Emitting function:set (id: $labelId, state: $state)');
+    socket.emit('function:set', {'label_id': labelId, 'state': state});
+  }
+
+  void toggleSubLabel(int subLabelId, bool state) {
+    print('WS: Emitting subfunction:toggle ($subLabelId, $state)');
+    socket.emit('subfunction:toggle', {
+      'sublabel_id': subLabelId,
+      'state': state,
+    });
+  }
+
+  void toggleNoSubLabel(int labelId, bool state) {
+    print(
+      'WS: Emitting function:set (id: $labelId, state: $state) for no-sublabel',
+    );
+    socket.emit('function:set', {'label_id': labelId, 'state': state});
   }
 }

@@ -349,6 +349,23 @@ class BoardService {
     }
   }
 
+  /// Fetches sublabels for a specific label
+  ///
+  /// Makes a GET request to /ipc/pin_labels/{labelId}/sublabels
+  Future<List<SubLabel>> getSubLabels(int labelId) async {
+    try {
+      final data = await ApiClient.get('/pin_labels/$labelId/sublabels');
+
+      if (data is List) {
+        return data.map((json) => SubLabel.fromJson(json)).toList();
+      }
+
+      throw Exception('Invalid response format: expected List');
+    } catch (e) {
+      throw Exception('Error fetching sublabels: $e');
+    }
+  }
+
   /// Fetches label details (associations)
   ///
   /// Makes a GET request to /ipc/labels/{labelId}/component_pin_sublabel?board_id={boardId}
