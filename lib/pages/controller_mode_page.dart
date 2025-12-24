@@ -69,6 +69,8 @@ class _ControllerModePageState extends State<ControllerModePage> {
   final TextEditingController _componentSearchController =
       TextEditingController();
   final TextEditingController _netSearchController = TextEditingController();
+  final TextEditingController _functionSearchController =
+      TextEditingController();
 
   // Status corrente: 'Component', 'Net', 'Assembly', 'Function', 'Repair'
   String _currentStatus = 'Component';
@@ -100,12 +102,10 @@ class _ControllerModePageState extends State<ControllerModePage> {
       _loadData();
     }
 
-    _componentSearchController.addListener(() {
-      setState(() {});
-    });
-    _netSearchController.addListener(() {
-      setState(() {});
-    });
+    _componentSearchController.addListener(() => setState(() {}));
+
+    _netSearchController.addListener(() => setState(() {}));
+    _functionSearchController.addListener(() => setState(() {}));
   }
 
   @override
@@ -114,6 +114,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
     _scrollController.dispose();
     _componentSearchController.dispose();
     _netSearchController.dispose();
+    _functionSearchController.dispose();
     super.dispose();
   }
 
@@ -377,6 +378,9 @@ class _ControllerModePageState extends State<ControllerModePage> {
   }
 
   void _onPartChanged(_Part? newValue) {
+    // Rimuovi il focus dal dropdown per evitare effetti visivi persistenti
+    FocusScope.of(context).requestFocus(FocusNode());
+
     if (newValue != null && newValue != _selectedPart) {
       // Show loader immediately to avoid seeing previous components turn off
       setState(() => _isLoadingParts = true);
@@ -791,87 +795,102 @@ class _ControllerModePageState extends State<ControllerModePage> {
   }
 
   Widget _buildFunctionMode() {
+    // Filter functions
+    final query = _functionSearchController.text.toLowerCase();
+    final filteredLabels = _labels.where((l) {
+      return l.name.toLowerCase().contains(query);
+    }).toList();
+
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Left Column: Function List (Labels)
+          // Left Column
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Functions',
-                  style: Theme.of(context).textTheme.titleMedium,
+                _buildSearchField(
+                  controller: _functionSearchController,
+                  hint: 'Search Functions...',
                 ),
                 const SizedBox(height: 8),
                 Expanded(
-                  child: _isLoadingFunctions
-                      ? const Center(child: CircularProgressIndicator())
-                      : ListView.builder(
-                          itemCount: _labels.length,
-                          itemBuilder: (context, index) {
-                            final label = _labels[index];
-                            final isSelected =
-                                _selectedFunction?.id == label.id;
-                            return Column(
-                              children: [
-                                ListTile(
-                                  title: Text(label.name),
-                                  selected: isSelected,
-                                  selectedTileColor: Theme.of(
-                                    context,
-                                  ).colorScheme.primaryContainer,
-                                  onTap: () => _onFunctionSelected(label),
-                                ),
-                                if (isSelected &&
-                                    label.id != -1 &&
-                                    _currentSubLabels.isNotEmpty)
-                                  Container(
-                                    padding: const EdgeInsets.only(left: 16.0),
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.surfaceContainerHighest,
-                                    child: _isLoadingSubLabels
-                                        ? const Padding(
-                                            padding: EdgeInsets.all(8.0),
-                                            child: Center(
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                              ),
-                                            ),
+                  child: _buildGiantBox(
+                    child: _isLoadingFunctions
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView.builder(
+                            itemCount: filteredLabels.length,
+                            itemBuilder: (context, index) {
+                              final label = filteredLabels[index];
+                              final isSelected =
+                                  _selectedFunction?.id == label.id;
+                              return Column(
+                                children: [
+                                  ListTile(
+                                    title: Text(label.name),
+                                    selected: isSelected,
+                                    selectedTileColor: Colors.transparent,
+                                    trailing: isSelected
+                                        ? const Icon(
+                                            Icons.check,
+                                            color: Colors.green,
                                           )
-                                        : Column(
-                                            children: _currentSubLabels.map((
-                                              sub,
-                                            ) {
-                                              final isActive =
-                                                  _subLabelStates[sub.id] ??
-                                                  false;
-                                              return SwitchListTile(
-                                                title: Text(sub.name),
-                                                value: isActive,
-                                                onChanged: (val) {
-                                                  setState(
-                                                    () =>
-                                                        _subLabelStates[sub
-                                                                .id] =
-                                                            val,
-                                                  );
-                                                  _wsService.toggleSubLabel(
-                                                    sub.id,
-                                                    val,
-                                                  );
-                                                },
-                                              );
-                                            }).toList(),
-                                          ),
+                                        : null,
+                                    onTap: () => _onFunctionSelected(label),
                                   ),
-                              ],
-                            );
-                          },
-                        ),
+                                  if (isSelected &&
+                                      label.id != -1 &&
+                                      _currentSubLabels.isNotEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.only(
+                                        left: 16.0,
+                                      ),
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.surfaceContainerHighest,
+                                      child: _isLoadingSubLabels
+                                          ? const Padding(
+                                              padding: EdgeInsets.all(8.0),
+                                              child: Center(
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                    ),
+                                              ),
+                                            )
+                                          : Column(
+                                              children: _currentSubLabels.map((
+                                                sub,
+                                              ) {
+                                                final isActive =
+                                                    _subLabelStates[sub.id] ??
+                                                    false;
+                                                return SwitchListTile(
+                                                  title: Text(sub.name),
+                                                  value: isActive,
+                                                  onChanged: (val) {
+                                                    setState(
+                                                      () =>
+                                                          _subLabelStates[sub
+                                                                  .id] =
+                                                              val,
+                                                    );
+                                                    _wsService.toggleSubLabel(
+                                                      sub.id,
+                                                      val,
+                                                    );
+                                                  },
+                                                );
+                                              }).toList(),
+                                            ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                  ),
                 ),
               ],
             ),
@@ -882,32 +901,69 @@ class _ControllerModePageState extends State<ControllerModePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Top Toggle: Show No-Sublabel Component
-                SwitchListTile(
-                  title: const Text('Show no-sublabel component'),
-                  value: _noSubLabelActive,
-                  onChanged: (val) {
-                    if (_selectedFunction != null &&
-                        _selectedFunction!.id != -1) {
-                      setState(() => _noSubLabelActive = val);
-                      _wsService.toggleNoSubLabel(_selectedFunction!.id, val);
-                    }
-                  },
+                _buildTopHeader(
+                  alignment: Alignment.centerRight,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Show no-sublabel component'),
+                      const SizedBox(width: 8),
+                      Switch(
+                        value: _noSubLabelActive,
+                        onChanged: (val) {
+                          if (_selectedFunction != null &&
+                              _selectedFunction!.id != -1) {
+                            setState(() => _noSubLabelActive = val);
+                            _wsService.toggleNoSubLabel(
+                              _selectedFunction!.id,
+                              val,
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                  ),
                 ),
-                const Divider(),
-                // Row 1: Active Components
-                const Text(
-                  'Active Components',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: _buildGiantBox(
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Text(
+                                  'Active Components',
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                              ),
+                              Expanded(child: _buildActiveComponentsList()),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Text(
+                                  'Active Nets',
+                                  style: Theme.of(context).textTheme.titleSmall,
+                                ),
+                              ),
+                              Expanded(child: _buildActiveNetsList()),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                Expanded(child: _buildActiveComponentsList()),
-                const Divider(),
-                // Row 2: Active Nets
-                const Text(
-                  'Active Nets',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Expanded(child: _buildActiveNetsList()),
               ],
             ),
           ),
@@ -929,10 +985,12 @@ class _ControllerModePageState extends State<ControllerModePage> {
       itemCount: activeComponents.length,
       itemBuilder: (context, index) {
         return ListTile(
+          dense: true,
           title: Text(activeComponents[index].name),
           leading: const Icon(
             Icons.settings_input_component,
             color: Colors.green,
+            size: 20,
           ),
         );
       },
@@ -952,8 +1010,9 @@ class _ControllerModePageState extends State<ControllerModePage> {
       itemCount: activeNets.length,
       itemBuilder: (context, index) {
         return ListTile(
+          dense: true,
           title: Text(activeNets[index].name),
-          leading: const Icon(Icons.hub, color: Colors.blue),
+          leading: const Icon(Icons.hub, color: Colors.blue, size: 20),
         );
       },
     );
@@ -984,30 +1043,18 @@ class _ControllerModePageState extends State<ControllerModePage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Left Column: Available / Inactive
+          // Left Column
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                TextField(
+                _buildSearchField(
                   controller: _componentSearchController,
-                  decoration: const InputDecoration(
-                    hintText: 'Cerca Componenti...',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      vertical: 0,
-                      horizontal: 12,
-                    ),
-                  ),
+                  hint: 'Cerca Componenti...',
                 ),
                 const SizedBox(height: 8),
                 Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+                  child: _buildGiantBox(
                     child: ListView.builder(
                       itemCount: filteredInactive.length,
                       itemBuilder: (context, index) {
@@ -1027,8 +1074,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
                               color: Theme.of(context).colorScheme.primary,
                               onPressed: () => _toggleComponent(item.id),
                             ),
-
-                            onTap: null, // Interaction moved to IconButton
+                            onTap: null,
                           ),
                         );
                       },
@@ -1039,29 +1085,21 @@ class _ControllerModePageState extends State<ControllerModePage> {
             ),
           ),
           const SizedBox(width: 16),
-          // Right Column: Active
+          // Right Column
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Header to align with search bar height (approx 48)
-                SizedBox(
-                  height: 48,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Attivi (${activeComponents.length})',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
+                _buildTopHeader(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    'Attivi (${activeComponents.length})',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+                  child: _buildGiantBox(
                     child: ListView.builder(
                       itemCount: activeComponents.length,
                       itemBuilder: (context, index) {
@@ -1086,8 +1124,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
                               color: Theme.of(context).colorScheme.error,
                               onPressed: () => _toggleComponent(item.id),
                             ),
-
-                            onTap: null, // Interaction moved to IconButton
+                            onTap: null,
                           ),
                         );
                       },
@@ -1103,192 +1140,75 @@ class _ControllerModePageState extends State<ControllerModePage> {
   }
 
   Widget _buildAssemblyMode() {
-    if (_parts.isEmpty) {
-      if (_isLoadingParts) {
-        return const Center(child: CircularProgressIndicator());
-      }
-      return const Center(child: Text('Nessuna Part disponibile.'));
-    }
-
-    return Column(
-      children: [
-        // Parts Dropdown
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          color: Theme.of(context).colorScheme.surfaceContainer,
-          child: Row(
-            children: [
-              const Text(
-                'Seleziona Part:',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: DropdownButton<_Part>(
-                  value: _selectedPart,
-                  isExpanded: true,
-                  isDense: true, // More compact
-                  hint: const Text('Seleziona una part'),
-                  items: _parts.map((_Part part) {
-                    return DropdownMenuItem<_Part>(
-                      value: part,
-                      child: Text(part.name),
-                    );
-                  }).toList(),
-                  onChanged: _onPartChanged,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (_isLoadingParts)
-          const Expanded(child: Center(child: CircularProgressIndicator()))
-        else if (_assemblyComponents.isEmpty)
-          const Expanded(
-            child: Center(child: Text('Nessun componente in questa part.')),
-          )
-        else
-          Expanded(child: _buildAssemblyColumns()),
-      ],
-    );
-  }
-
-  Widget _buildAssemblyColumns() {
-    // Left: Non-Assembled (state[1] == false)
-    // Right: Assembled (state[1] == true)
-    final nonAssembled = _assemblyComponents.where((c) {
-      final state = _componentStates[c.id];
-      // Default to non-assembled if state is missing
-      return state == null || state.length < 2 || !state[1];
-    }).toList();
-
-    final assembled = _assemblyComponents.where((c) {
-      final state = _componentStates[c.id];
-      return state != null && state.length >= 2 && state[1];
-    }).toList();
-
+    // Show columns even if empty (Giant Box style)
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Left Column
+          // Left Column: Search (Part Selector) + Unassembled
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Da Assemblare (${nonAssembled.length})',
-                  style: Theme.of(context).textTheme.titleMedium,
+                // Part Selector styled as Search Field
+                InputDecorator(
+                  decoration: const InputDecoration(
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 0,
+                    ),
+                    border: OutlineInputBorder(),
+                    hintText: 'Seleziona una Part...',
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<_Part>(
+                      value: _selectedPart,
+                      isExpanded: true,
+                      icon: const Icon(Icons.arrow_drop_down),
+                      hint: const Text('Seleziona una part'),
+                      items: _parts.map((_Part part) {
+                        return DropdownMenuItem<_Part>(
+                          value: part,
+                          child: Text(part.name),
+                        );
+                      }).toList(),
+                      onChanged: _onPartChanged,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: ListView.builder(
-                      itemCount: nonAssembled.length,
-                      itemBuilder: (context, index) {
-                        final item = nonAssembled[index];
-                        final state =
-                            _componentStates[item.id] ?? [false, false];
-                        final isVisible = state.isNotEmpty ? state[0] : false;
-
-                        return Container(
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                color: Theme.of(context).dividerColor,
-                              ),
-                            ),
-                          ),
-                          child: ListTile(
-                            title: Text(item.name),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // Toggle Visibility
-                                IconButton(
-                                  icon: Icon(
-                                    isVisible
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
-                                    color: isVisible
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Colors.grey,
-                                  ),
-                                  onPressed: () => _toggleComponentVisibility(
-                                    item.id,
-                                    !isVisible,
-                                  ),
-                                ),
-                                // Flag as Assembled
-                                IconButton(
-                                  icon: const Icon(Icons.flag), // Flag icon
-                                  color: Theme.of(context).colorScheme.tertiary,
-                                  onPressed: () =>
-                                      _setComponentAssembled(item.id, true),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                  child: _buildGiantBox(
+                    child: _isLoadingParts
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildUnassembledList(),
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 16),
-          // Right Column
+          // Right Column: Header + Assembled
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Assemblati (${assembled.length})',
-                  style: Theme.of(context).textTheme.titleMedium,
+                _buildTopHeader(
+                  // Empty or title for the right column
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    'Assemblati',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: ListView.builder(
-                      itemCount: assembled.length,
-                      itemBuilder: (context, index) {
-                        final item = assembled[index];
-                        return Container(
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                color: Theme.of(context).dividerColor,
-                              ),
-                            ),
-                          ),
-                          child: ListTile(
-                            title: Text(
-                              item.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.undo),
-                              color: Theme.of(context).colorScheme.error,
-                              onPressed: () =>
-                                  _setComponentAssembled(item.id, false),
-                              tooltip: 'Sposta nei non assemblati',
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                  child: _buildGiantBox(
+                    child: _isLoadingParts
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildAssembledList(),
                   ),
                 ),
               ],
@@ -1296,6 +1216,101 @@ class _ControllerModePageState extends State<ControllerModePage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildUnassembledList() {
+    // Left: Non-Assembled (state[1] == false)
+    final nonAssembled = _assemblyComponents.where((c) {
+      final state = _componentStates[c.id];
+      // Default to non-assembled if state is missing
+      return state == null || state.length < 2 || !state[1];
+    }).toList();
+
+    if (nonAssembled.isEmpty) {
+      if (_selectedPart == null || _selectedPart!.id == null) {
+        return const Center(child: Text('Seleziona una part specifica.'));
+      }
+      return const Center(child: Text('Tutti i componenti sono assemblati.'));
+    }
+
+    return ListView.builder(
+      itemCount: nonAssembled.length,
+      itemBuilder: (context, index) {
+        final item = nonAssembled[index];
+        final state = _componentStates[item.id] ?? [false, false];
+        final isVisible = state.isNotEmpty ? state[0] : false;
+
+        return Container(
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: Theme.of(context).dividerColor),
+            ),
+          ),
+          child: ListTile(
+            title: Text(item.name),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Toggle Visibility
+                IconButton(
+                  icon: Icon(
+                    isVisible ? Icons.visibility : Icons.visibility_off,
+                    color: isVisible
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.grey,
+                  ),
+                  onPressed: () =>
+                      _toggleComponentVisibility(item.id, !isVisible),
+                ),
+                // Flag as Assembled
+                IconButton(
+                  icon: const Icon(Icons.flag), // Flag icon
+                  color: Theme.of(context).colorScheme.tertiary,
+                  onPressed: () => _setComponentAssembled(item.id, true),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAssembledList() {
+    // Right: Assembled (state[1] == true)
+    final assembled = _assemblyComponents.where((c) {
+      final state = _componentStates[c.id];
+      return state != null && state.length >= 2 && state[1];
+    }).toList();
+
+    if (assembled.isEmpty) {
+      return const Center(child: Text('Nessun componente assemblato.'));
+    }
+    return ListView.builder(
+      itemCount: assembled.length,
+      itemBuilder: (context, index) {
+        final item = assembled[index];
+        return Container(
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: Theme.of(context).dividerColor),
+            ),
+          ),
+          child: ListTile(
+            title: Text(
+              item.name,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.undo),
+              color: Theme.of(context).colorScheme.error,
+              onPressed: () => _setComponentAssembled(item.id, false),
+              tooltip: 'Sposta nei non assemblati',
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1318,30 +1333,18 @@ class _ControllerModePageState extends State<ControllerModePage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Left Column: Available / Inactive
+          // Left Column
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                TextField(
+                _buildSearchField(
                   controller: _netSearchController,
-                  decoration: const InputDecoration(
-                    hintText: 'Cerca Net...',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      vertical: 0,
-                      horizontal: 12,
-                    ),
-                  ),
+                  hint: 'Cerca Net...',
                 ),
                 const SizedBox(height: 8),
                 Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+                  child: _buildGiantBox(
                     child: ListView.builder(
                       itemCount: filteredInactive.length,
                       itemBuilder: (context, index) {
@@ -1361,8 +1364,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
                               color: Theme.of(context).colorScheme.primary,
                               onPressed: () => _toggleNet(item.id),
                             ),
-
-                            onTap: null, // Interaction moved to IconButton
+                            onTap: null,
                           ),
                         );
                       },
@@ -1373,29 +1375,21 @@ class _ControllerModePageState extends State<ControllerModePage> {
             ),
           ),
           const SizedBox(width: 16),
-          // Right Column: Active
+          // Right Column
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Header to align with search bar height (approx 48)
-                SizedBox(
-                  height: 48,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Attivi (${activeNets.length})',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
+                _buildTopHeader(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    'Attivi (${activeNets.length})',
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+                  child: _buildGiantBox(
                     child: ListView.builder(
                       itemCount: activeNets.length,
                       itemBuilder: (context, index) {
@@ -1420,8 +1414,7 @@ class _ControllerModePageState extends State<ControllerModePage> {
                               color: Theme.of(context).colorScheme.error,
                               onPressed: () => _toggleNet(item.id),
                             ),
-
-                            onTap: null, // Interaction moved to IconButton
+                            onTap: null,
                           ),
                         );
                       },
@@ -1433,6 +1426,51 @@ class _ControllerModePageState extends State<ControllerModePage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSearchField({
+    required TextEditingController controller,
+    required String hint,
+  }) {
+    return TextField(
+      controller: controller,
+      decoration: InputDecoration(
+        hintText: hint,
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: controller.text.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                onPressed: () {
+                  controller.clear();
+                  setState(() {});
+                },
+              )
+            : null,
+        border: const OutlineInputBorder(),
+        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+      ),
+    );
+  }
+
+  Widget _buildGiantBox({required Widget? child}) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildTopHeader({
+    required Widget child,
+    AlignmentGeometry alignment = Alignment.centerLeft,
+  }) {
+    // Aligns the header to a standard height (e.g. 48 for search field)
+    return SizedBox(
+      height: 48,
+      child: Align(alignment: alignment, child: child),
     );
   }
 }
