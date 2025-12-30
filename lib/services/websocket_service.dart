@@ -6,6 +6,8 @@ class ARBoardWebSocket {
   bool _isInitialized = false;
   String? sessionId;
   int? currentBoardId;
+  int? currentFunctionId;
+  bool currentFunctionVisible = true;
 
   // Callbacks
   Function(String)? onSessionCreated;
@@ -22,7 +24,7 @@ class ARBoardWebSocket {
   Function(String)? onStatusUpdate; // Callback per aggiornamento status
   Function(String)? onSessionTerminated; // Callback per sessione terminata
   Function(int?)? onPartSelected; // Callback per selezione part
-  Function(int?)? onFunctionSelected; // Callback per selezione function
+  Function(int?, bool)? onFunctionSelected; // Callback per selezione function
   Function(int, bool)? onSubLabelUpdate; // Callback per stato sublabel
 
   // Singleton instance
@@ -126,8 +128,9 @@ class ARBoardWebSocket {
 
     // Function Mode
     socket.on('function:active', (data) {
-      final functionId = data['label_id'] as int?;
-      onFunctionSelected?.call(functionId);
+      currentFunctionId = data['label_id'] as int?;
+      currentFunctionVisible = data['state'] as bool? ?? true;
+      onFunctionSelected?.call(currentFunctionId, currentFunctionVisible);
     });
 
     socket.on('subfunction:state', (data) {

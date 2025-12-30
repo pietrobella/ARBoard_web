@@ -65,6 +65,11 @@ class _ControllerModePageState extends State<ControllerModePage> {
   bool _isLoadingFunctions = false;
   bool _isLoadingSubLabels = false;
 
+  // Pending updates (for sync when data is loading)
+  int? _pendingFunctionId;
+  bool? _pendingFunctionState;
+  bool _hasPendingFunction = false;
+
   // Search controller for components
   final TextEditingController _componentSearchController =
       TextEditingController();
@@ -103,9 +108,19 @@ class _ControllerModePageState extends State<ControllerModePage> {
     }
 
     _componentSearchController.addListener(() => setState(() {}));
-
     _netSearchController.addListener(() => setState(() {}));
     _functionSearchController.addListener(() => setState(() {}));
+
+    // Initialize with current WebSocket state if available
+    // (This fixes the issue where events fired before this page loaded are missed)
+    if (_wsService.currentFunctionId != null ||
+        _wsService.currentFunctionVisible != true) {
+      _pendingFunctionId = _wsService.currentFunctionId;
+      _pendingFunctionState = _wsService.currentFunctionVisible;
+      _hasPendingFunction = true;
+      // We can't call _applyPendingFunction here because labels aren't loaded yet.
+      // logic in _loadFunctions will pick this up.
+    }
   }
 
   @override
@@ -212,25 +227,15 @@ class _ControllerModePageState extends State<ControllerModePage> {
     };
 
     // Function Selected
-    _wsService.onFunctionSelected = (functionId) {
+    // Function Selected
+    // Function Selected
+    _wsService.onFunctionSelected = (functionId, state) {
       if (mounted) {
-        print('Function selected from server: $functionId');
-        // Find label
-        final newFunction = _labels.firstWhere(
-          (l) => l.id == functionId,
-          orElse: () => _nullLabel(),
-        );
-
-        if (_selectedFunction?.id != newFunction.id) {
-          setState(() {
-            _selectedFunction = newFunction;
-            _currentSubLabels = [];
-            _noSubLabelActive = false; // Reset toggle
-          });
-          if (newFunction.id != -1) {
-            _loadSubLabels(newFunction.id);
-          }
-        }
+        print('Function selected from server: $functionId, visible: $state');
+        _pendingFunctionId = functionId;
+        _pendingFunctionState = state;
+        _hasPendingFunction = true;
+        _applyPendingFunction();
       }
     };
 
@@ -315,7 +320,71 @@ class _ControllerModePageState extends State<ControllerModePage> {
 
     // Load parts if we are in Assembly mode or just preload them
     await _loadParts();
+    await _loadParts();
     await _loadFunctions();
+    await _syncSessionState();
+  }
+
+  Future<void> _syncSessionState() async {
+    final sessionId = _sessionId ?? _wsService.sessionId;
+    if (sessionId == null) return;
+
+    try {
+      final sessions = await _wsService.getActiveSessions();
+      final session = sessions.firstWhere(
+        (s) => s['session_id'] == sessionId || s['id'] == sessionId,
+        orElse: () => {},
+      );
+
+      if (session.isEmpty) return;
+
+      if (mounted) {
+        // Sync Mode
+        final mode = session['mode'] as String?;
+        if (mode != null && _validStatuses.contains(mode)) {
+          if (_currentStatus != mode) {
+            _changeStatus(mode);
+          }
+        }
+
+        // Sync Function
+        final funcData = session['function'];
+        if (funcData != null && funcData is Map) {
+          final name = funcData['name'] as String?;
+          final visible = funcData['visible'] as bool? ?? true;
+
+          if (name != null) {
+            // Find label by name
+            final label = _labels.firstWhere(
+              (l) => l.name == name,
+              orElse: () => _nullLabel(),
+            );
+
+            // Apply if valid or explicitly None
+            if (label.id != -1 || name == 'None') {
+              // Update if different
+              if (_selectedFunction?.id != label.id) {
+                setState(() {
+                  _selectedFunction = label;
+                  _noSubLabelActive = visible;
+                  _currentSubLabels = [];
+                });
+                if (label.id != -1) {
+                  _loadSubLabels(label.id);
+                }
+              } else {
+                // Update visibility if same label
+                if (_noSubLabelActive != visible) {
+                  setState(() => _noSubLabelActive = visible);
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Error syncing session state: $e');
+    }
   }
 
   Future<void> _loadParts() async {
@@ -412,11 +481,17 @@ class _ControllerModePageState extends State<ControllerModePage> {
         }
         setState(() {
           _labels = labels;
-          // Default selection if not set
-          if (_selectedFunction == null && _labels.isNotEmpty) {
-            _selectedFunction = labels.first;
-          }
           _isLoadingFunctions = false;
+
+          // Retry pending function selection
+          if (_hasPendingFunction) {
+            _applyPendingFunction();
+          } else {
+            // Default selection if not set
+            if (_selectedFunction == null && _labels.isNotEmpty) {
+              _selectedFunction = labels.first;
+            }
+          }
         });
       }
     } catch (e) {
@@ -438,6 +513,55 @@ class _ControllerModePageState extends State<ControllerModePage> {
     } catch (e) {
       print('Error loading sublabels: $e');
       if (mounted) setState(() => _isLoadingSubLabels = false);
+    }
+  }
+
+  void _applyPendingFunction() {
+    if (!mounted) return;
+
+    // Check if we actually have labels loaded.
+    // If not, we can't map the ID to a Label object yet.
+    if (_labels.isEmpty) {
+      return;
+    }
+
+    // Capture pending values and reset flag?
+    // Ideally we keep them until successfully applied or overwritten.
+    final targetId = _pendingFunctionId;
+
+    // Find the label. If targetId is null, it maps to None (which should be present as -1 or initialized)
+    // We used _nullLabel() which has id = -1.
+    // So if targetId is null, we look for -1.
+    final searchId = targetId ?? -1;
+
+    final newFunction = _labels.firstWhere(
+      (l) => l.id == searchId,
+      orElse: () => _nullLabel(),
+    );
+
+    // Update if changed OR if state (visibility) needs update
+    final bool stateChanged =
+        _noSubLabelActive != (_pendingFunctionState ?? true);
+
+    if (_selectedFunction?.id != newFunction.id) {
+      setState(() {
+        _selectedFunction = newFunction;
+        _currentSubLabels = [];
+        // Apply the pending state (Bug 1 Fix)
+        if (_pendingFunctionState != null) {
+          _noSubLabelActive = _pendingFunctionState!;
+        } else {
+          _noSubLabelActive = true; // Default
+        }
+      });
+      if (newFunction.id != -1) {
+        _loadSubLabels(newFunction.id);
+      }
+    } else if (stateChanged) {
+      // Same function, but visibility toggled
+      setState(() {
+        _noSubLabelActive = _pendingFunctionState ?? true;
+      });
     }
   }
 
